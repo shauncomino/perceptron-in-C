@@ -36,7 +36,7 @@ double rand_in_range(double min, double max);
 void zero_init(Matrix * matrix);
 Matrix * transpose(Matrix * matrix);
 Matrix * copy_matrix(Matrix * matrix);
-
+Matrix * array_to_matrix(double ** array, int rows, int cols);
 
 // Layer Operations
 Layer * init_layer(int node_count);
@@ -44,6 +44,7 @@ Node * init_node();
 void connect_layers(Layer * layer1, Layer * layer2);
 double * init_weights(int nodes);
 Matrix * convert_to_matrix(Layer * layer);
+Matrix * nodes_to_matrix(Layer * layer);
 
 // Neural Network Functions
 NN * init_NN();
@@ -51,6 +52,7 @@ void add_layer(NN * neural_network, int nodes);
 Matrix * feed_forward(Matrix * input, NN * nn);
 Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
 Matrix * rand_input(int rows, int cols);
+void plus_biases(Matrix * matrix, Matrix * biases);
 
 // Display functions
 void display_node(Node * node);
@@ -64,8 +66,9 @@ void free_NN(NN * nn);
 void free_NN_layer(Layer * curr_layer);
 void free_matrix(Matrix * matrix);
 
-//Activation functions
+// Activation functions
 void relu(Matrix * matrix);
+void relu_prime(Matrix * matrix);
 
 // Cost functions
 double mean_squared_error(Matrix * y_pred, Matrix * y_true);
@@ -79,18 +82,58 @@ int main (void)
     add_layer(nn, 20);
     add_layer(nn, 3);
 
+    Matrix * input;
+    Matrix * output;
+    for (int i = 0; i < 5; i++) {
+        input = rand_input(2, 10);
+        output = feed_forward(input, nn);
+        display_matrix(output);
+    }
+    // error_matrix *
     free_NN(nn);
     nn = NULL;
     return 0;
 }
 
+// Element-wise addition of matrices
+void plus_biases(Matrix * matrix, Matrix * biases) {
+    if (matrix->rows != biases->rows) {
+        printf("Cannot add mismatching dimensions!\n");
+        exit(1);
+    }
+
+    int rows = matrix->rows, cols = matrix->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            matrix->array[i][j] += biases->array[i][j];
+}
+
+// Converts given double array to matrix
+Matrix * array_to_matrix(double ** array, int rows, int cols) {
+    Matrix * matrix = alloc_matrix(rows, cols);
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < rows; j++)
+            matrix->array[i][j] = array[i][j];
+    return matrix;
+}
+
+// Converts the nodes in a layer to a matrix
+Matrix * nodes_to_matrix(Layer * layer) {
+    Matrix * matrix = alloc_matrix(layer->node_count, 1);
+    int rows = matrix->rows, cols = matrix->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            matrix->array[i][j] = layer->nodes[i]->bias;
+    return matrix;
+}
+// (y_pred - y_true) ^ 2
 double mean_squared_error(Matrix * y_pred, Matrix * y_true) {
     double mse;
     int rows = y_pred->rows, cols = y_pred->cols;
     for (int i = 0; i < rows; i++)
         for (int j = 0; j < cols; j++)
             mse += pow(y_true->array[i][j] - y_pred->array[i][j], 2);
-    return 0.5 * mse;
+    return mse;
 }
 
 //The Rectified Linear Unit function
@@ -136,7 +179,11 @@ Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
         return input;
 
     Matrix * weights = convert_to_matrix(current_layer);
+    Matrix * biases = nodes_to_matrix(current_layer);
     Matrix * output = dot_product(input, weights);
+    //plus_biases(output, biases);
+    // ^^ figure this out later
+    free_matrix(biases);
     free(weights);
     if (current_layer->prev_layer != NULL)
         free_matrix(input);
