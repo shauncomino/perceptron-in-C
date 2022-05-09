@@ -18,6 +18,7 @@ typedef struct Layer_s {
 
 typedef struct {
     int layers;
+    double learning_rate;
     Layer * input_layer;
 } NN;
 
@@ -31,6 +32,7 @@ typedef struct {
 Matrix * dot_product(Matrix * m1, Matrix * m2);
 Matrix * alloc_matrix(int rows, int cols);
 void random_populate(Matrix * matrix);
+Matrix * rand_matrix(int rows, int cols);
 void display_matrix(Matrix * matrix);
 double rand_in_range(double min, double max);
 void zero_init(Matrix * matrix);
@@ -38,6 +40,13 @@ Matrix * transpose(Matrix * matrix);
 Matrix * copy_matrix(Matrix * matrix);
 Matrix * array_to_matrix(double ** array, int rows, int cols);
 void print_shape(Matrix * matrix);
+
+// Element-wise matrix operations
+void element_wise_addition(Matrix * m1, Matrix * m2);
+void element_wise_multiplication(Matrix * m1, Matrix * m2);
+void element_wise_subtraction(Matrix * m1, Matrix * m2);
+void element_wise_division(Matrix * m1, Matrix * m2);
+int element_wiseable(Matrix * m1, Matrix * m2);
 
 // Layer Operations
 Layer * init_layer(int node_count);
@@ -49,10 +58,11 @@ Matrix * nodes_to_matrix(Layer * layer);
 Matrix * layer_to_biases(Layer * layer);
 
 // Neural Network Functions
-NN * init_NN();
+NN * init_NN(double learning_rate);
 void add_layer(NN * neural_network, int nodes);
 Matrix * feed_forward(Matrix * input, NN * nn);
 Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
+Matrix * back_propagate(Matrix * output_error, double * learning_rate);
 Matrix * rand_input(NN * nn);
 void plus_biases(Matrix * matrix, Layer * layer);
 
@@ -79,27 +89,86 @@ double mean_squared_error(Matrix * y_pred, Matrix * y_true);
 int main (void)
 {
     srand(time(NULL));
-    NN * nn = init_NN();
-    add_layer(nn, 4);
-    add_layer(nn, 10);
-    add_layer(nn, 10);
-    add_layer(nn, 4);
-
-    Matrix * input;
-    Matrix * output;
-    for (int i = 0; i < 5; i++) {
-
-        input = rand_input(nn);
-        output = feed_forward(input, nn);
-        printf("Input:\n");
-        display_matrix(input);
-        printf("Output:\n");
-        display_matrix(output);
-    }
-    free_NN(nn);
-    nn = NULL;
     return 0;
 }
+
+Matrix * rand_matrix(int rows, int cols) {
+    Matrix * matrix = alloc_matrix(rows, cols);
+    random_populate(matrix);
+    return matrix;
+}
+
+// Determines if the given matrices can be accessed element-wise
+int element_wiseable(Matrix * m1, Matrix * m2) {
+    return (m1->rows == m2->rows && m1->cols == m2->cols);
+}
+
+// Element-wise addition between matrices
+void element_wise_addition(Matrix * m1, Matrix * m2) {
+
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for element-wise addition\n");
+        exit(1);
+    }
+    int rows = m1->rows, cols = m1->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            m1->array[i][j] += m2->array[i][j];
+}
+
+// Element-wise multiplication between matrices
+void element_wise_multiplication(Matrix * m1, Matrix * m2) {
+
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for element-wise addition\n");
+        exit(1);
+    }
+    int rows = m1->rows, cols = m2->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            m1->array[i][j] *= m2->array[i][j];
+}
+
+// Element-wise division between matrices (order matters)
+void element_wise_division(Matrix * m1, Matrix * m2) {
+
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for element-wise addition\n");
+        exit(1);
+    }
+    int rows = m1->rows, cols = m2->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            m1->array[i][j] /= m2->array[i][j];
+}
+
+// Element-wise subtraction between matrices (order matters)
+void element_wise_subtraction(Matrix * m1, Matrix * m2) {
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for element-wise addition\n");
+        exit(1);
+    }
+    int rows = m1->rows, cols = m2->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            m1->array[i][j] -= m2->array[i][j];
+}
+/*
+Matrix * back_propagate(NN * nn, Matrix * y_true, Matrix * y_pred) {
+    Layer * current_layer = nn->input_layer;
+    while (current_layer->next_layer != NULL)
+        current_layer = current_layer->next_layer;
+
+    Matrix * output_error
+    while (current_layer->prev_layer != NULL) {
+
+    }
+    Matrix * output_error = mean_squared_error(y_pred, y_true);
+
+
+
+}
+*/
 
 // Print the shape of the given matrix
 void print_shape(Matrix * matrix) {
@@ -289,10 +358,11 @@ void display_NN_with_weights(NN * nn) {
 }
 
 // Initialize a neural network struct
-NN * init_NN() {
+NN * init_NN(double learning_rate) {
     NN * nn = (NN *) malloc(sizeof(NN) * 1);
     nn->input_layer = NULL;
     nn->layers = 0;
+    nn->learning_rate = learning_rate;
     return nn;
 }
 
@@ -401,9 +471,9 @@ void display_matrix(Matrix * matrix) {
       for (int j = 0; j < matrix->cols; ++j) {
          num = matrix->array[i][j];
          if (num < 0)
-            printf("[%.2lf] ", num);
+            printf("[%.2lf ] ", num);
          else
-            printf("[ %.2lf] ", num);
+            printf("[ %.2lf ] ", num);
          if (j == matrix->cols - 1)
             printf("\n");
       }
