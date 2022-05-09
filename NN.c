@@ -37,6 +37,7 @@ void zero_init(Matrix * matrix);
 Matrix * transpose(Matrix * matrix);
 Matrix * copy_matrix(Matrix * matrix);
 Matrix * array_to_matrix(double ** array, int rows, int cols);
+void print_shape(Matrix * matrix);
 
 // Layer Operations
 Layer * init_layer(int node_count);
@@ -45,14 +46,16 @@ void connect_layers(Layer * layer1, Layer * layer2);
 double * init_weights(int nodes);
 Matrix * convert_to_matrix(Layer * layer);
 Matrix * nodes_to_matrix(Layer * layer);
+Matrix * layer_to_biases(Layer * layer);
 
 // Neural Network Functions
 NN * init_NN();
 void add_layer(NN * neural_network, int nodes);
 Matrix * feed_forward(Matrix * input, NN * nn);
 Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
-Matrix * rand_input(int rows, int cols);
-void plus_biases(Matrix * matrix, Matrix * biases);
+Matrix * rand_input(NN * nn);
+void plus_biases(Matrix * matrix, Layer * layer);
+
 
 // Display functions
 void display_node(Node * node);
@@ -77,35 +80,80 @@ int main (void)
 {
     srand(time(NULL));
     NN * nn = init_NN();
+    add_layer(nn, 4);
     add_layer(nn, 10);
-    add_layer(nn, 20);
-    add_layer(nn, 20);
-    add_layer(nn, 3);
+    add_layer(nn, 10);
+    add_layer(nn, 4);
 
     Matrix * input;
     Matrix * output;
     for (int i = 0; i < 5; i++) {
-        input = rand_input(2, 10);
+
+        input = rand_input(nn);
         output = feed_forward(input, nn);
+        printf("Input:\n");
+        display_matrix(input);
+        printf("Output:\n");
         display_matrix(output);
     }
-    // error_matrix *
     free_NN(nn);
     nn = NULL;
     return 0;
 }
 
+// Print the shape of the given matrix
+void print_shape(Matrix * matrix) {
+    printf("(%d, %d)\n", matrix->rows, matrix->cols);
+}
+
+
+// Random input based on the architecture of the Neural Network
+Matrix * rand_input(NN * nn) {
+    double num;
+    Matrix * input = alloc_matrix(1, nn->input_layer->node_count);
+    int rows = input->rows, cols = input->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            input->array[i][j] = rand_in_range(-3.0, 3.0);
+    return input;
+}
+
+// User friendly abstraction over feed_forward(input, nn->input_layer)
+Matrix * feed_forward(Matrix * input, NN * nn) {
+    return feed_forward_internal(input, nn->input_layer);
+}
+
+// The classic feed_forward algorithm.
+// Implemented with recursion
+Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
+    if (current_layer->next_layer == NULL)
+        return input;
+
+    Matrix * weights = convert_to_matrix(current_layer);
+    Matrix * output = dot_product(input, weights);
+    plus_biases(output, current_layer->next_layer);
+    relu(output);
+    free(weights);
+
+    if (current_layer->prev_layer != NULL)
+        free_matrix(input);
+
+    return feed_forward_internal(output, current_layer->next_layer);
+}
+
 // Element-wise addition of matrices
-void plus_biases(Matrix * matrix, Matrix * biases) {
-    if (matrix->rows != biases->rows) {
-        printf("Cannot add mismatching dimensions!\n");
+void plus_biases(Matrix * matrix, Layer * layer) {
+
+    if (matrix->cols == layer->node_count || matrix->rows == layer->node_count) {
+        int cols = matrix->cols, rows = matrix->rows;
+        for (int i = 0; i < rows; ++i)
+            for (int j = 0; j < cols; ++j)
+                matrix->array[i][j] += layer->nodes[j]->bias;
+    } else {
+        printf("Cannot add biases of mismatching lengths!\n");
         exit(1);
     }
 
-    int rows = matrix->rows, cols = matrix->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            matrix->array[i][j] += biases->array[i][j];
 }
 
 // Converts given double array to matrix
@@ -116,6 +164,8 @@ Matrix * array_to_matrix(double ** array, int rows, int cols) {
             matrix->array[i][j] = array[i][j];
     return matrix;
 }
+
+
 
 // Converts the nodes in a layer to a matrix
 Matrix * nodes_to_matrix(Layer * layer) {
@@ -157,41 +207,6 @@ Matrix * copy_matrix(Matrix * matrix) {
             copy->array[i][j] = matrix->array[i][j];
     return copy;
 }
-
-// Generates a random input matrix
-Matrix * rand_input(int rows, int cols) {
-    Matrix * rand_in = alloc_matrix(rows, cols);
-    for (int r = 0; r < rand_in->rows; r++)
-        for (int c = 0; c < rand_in->cols; c++)
-            rand_in->array[r][c] = (double) fmod(rand(), 3.2);
-    return rand_in;
-}
-
-// User friendly abstraction over feed_forward(input, nn->input_layer)
-Matrix * feed_forward(Matrix * input, NN * nn) {
-    return feed_forward_internal(input, nn->input_layer);
-}
-
-// The classic feed_forward algorithm.
-// Implemented with recursion
-Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
-    if (current_layer->next_layer == NULL)
-        return input;
-
-    Matrix * weights = convert_to_matrix(current_layer);
-    Matrix * biases = nodes_to_matrix(current_layer);
-    Matrix * output = dot_product(input, weights);
-    //plus_biases(output, biases);
-    // ^^ figure this out later
-    free_matrix(biases);
-    free(weights);
-    if (current_layer->prev_layer != NULL)
-        free_matrix(input);
-    // Add the bias on this line <->
-    relu(output);
-    return feed_forward_internal(output, current_layer->next_layer);
-}
-
 
 
 // Makes an implicit matrix from a layer of dimensions
@@ -381,7 +396,7 @@ void zero_init(Matrix * matrix) {
 // Displays the matrix given the dimensions
 void display_matrix(Matrix * matrix) {
    double num = 0.0;
-   printf("Rows: %d\tCols:%d\n", matrix->rows, matrix->cols);
+   print_shape(matrix);
    for (int i = 0; i < matrix->rows; ++i) {
       for (int j = 0; j < matrix->cols; ++j) {
          num = matrix->array[i][j];
