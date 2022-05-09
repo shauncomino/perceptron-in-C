@@ -5,6 +5,12 @@
 
 // Struct definitions
 typedef struct {
+    int rows;
+    int cols;
+    double ** array;
+} Matrix;
+
+typedef struct {
     double bias;
     double * weights;
 } Node;
@@ -12,6 +18,8 @@ typedef struct {
 typedef struct Layer_s {
     int node_count;
     Node ** nodes;
+    Matrix * input;
+    Matrix * output;
     struct Layer_s * next_layer;
     struct Layer_s * prev_layer;
 } Layer;
@@ -23,10 +31,9 @@ typedef struct {
 } NN;
 
 typedef struct {
-    int rows;
-    int cols;
-    double ** array;
-} Matrix;
+    Matrix * x;
+    Matrix * y;
+} Data;
 
 // Matrix operations
 Matrix * dot_product(Matrix * m1, Matrix * m2);
@@ -40,6 +47,7 @@ Matrix * transpose(Matrix * matrix);
 Matrix * copy_matrix(Matrix * matrix);
 Matrix * array_to_matrix(double ** array, int rows, int cols);
 void print_shape(Matrix * matrix);
+void multiply_by (Matrix * matrix, double value);
 
 // Element-wise matrix operations
 void element_wise_addition(Matrix * m1, Matrix * m2);
@@ -60,12 +68,13 @@ Matrix * layer_to_biases(Layer * layer);
 // Neural Network Functions
 NN * init_NN(double learning_rate);
 void add_layer(NN * neural_network, int nodes);
-Matrix * feed_forward(Matrix * input, NN * nn);
-Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
-Matrix * back_propagate(Matrix * output_error, double * learning_rate);
 Matrix * rand_input(NN * nn);
 void plus_biases(Matrix * matrix, Layer * layer);
 
+// Training functions
+Matrix * feed_forward(Matrix * input, NN * nn);
+Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
+Matrix * back_propagate(double learning_rate, Layer * layer, Matrix * output_error);
 
 // Display functions
 void display_node(Node * node);
@@ -73,6 +82,7 @@ void display_layer(Layer * layer);
 void display_NN(NN * nn);
 void display_weights(Layer * layer);
 void display_NN_with_weights(NN * nn);
+void display_datapoint(Data * data);
 
 // Free Functions
 void free_NN(NN * nn);
@@ -83,15 +93,157 @@ void free_matrix(Matrix * matrix);
 void relu(Matrix * matrix);
 void relu_prime(Matrix * matrix);
 
+
 // Cost functions
 double mean_squared_error(Matrix * y_pred, Matrix * y_true);
+Matrix * loss_prime(Matrix * y_true, Matrix * y_pred);
+double mean_squared_error_prime(double y_true, double y_pred);
 
+// Dataset operations
+Data * alloc_data();
 int main (void)
 {
     srand(time(NULL));
+
+    NN * nn = init_NN(0.001);
+    add_layer(nn, 2);
+    add_layer(nn, 4);
+    add_layer(nn, 4);
+    add_layer(nn, 1);
+
+    Data * data_point1 = alloc_data();
+    data_point1->x = alloc_matrix(1, 2);
+    data_point1->y = alloc_matrix(1, 1);
+
+    data_point1->x->array[0][0] = 1;
+    data_point1->x->array[0][1] = 1;
+    data_point1->y->array[0][0] = 0;
+
+    Data * data_point2 = alloc_data();
+    data_point2->x = alloc_matrix(1, 2);
+    data_point2->y = alloc_matrix(1, 1);
+
+    data_point2->x->array[0][0] = 0;
+    data_point2->x->array[0][1] = 1;
+    data_point2->y->array[0][0] = 1;
+
+    Data * data_point3 = alloc_data();
+    data_point3->x = alloc_matrix(1, 2);
+    data_point3->y = alloc_matrix(1, 1);
+
+    data_point3->x->array[0][0] = 0;
+    data_point3->x->array[0][1] = 0;
+    data_point3->y->array[0][0] = 0;
+
+    Data * data_point4 = alloc_data();
+    data_point4->x = alloc_matrix(1, 2);
+    data_point4->y = alloc_matrix(1, 1);
+
+    data_point4->x->array[0][0] = 1;
+    data_point4->x->array[0][1] = 0;
+    data_point4->y->array[0][0] = 1;
+
+    // All combinations of XOR allocated ^
+
+    Matrix * out = feed_forward(data_point1->x, nn);
+    Matrix * y_pred = out;
+    Matrix * y_true = data_point1->y;
+    printf("Prediction:\n");
+    display_matrix(y_pred);
+    printf("Actual:\n");
+    display_matrix(y_true);
+
+    double loss = mean_squared_error(y_pred, y_true);
+
+    Matrix * loss_matrix = loss_prime(y_pred, y_true);
+    printf("Error was: %lf\n", loss);
+    printf("Loss matrix:\n");
+    display_matrix(loss_matrix);
+
+    Layer * current_layer = nn->input_layer;
+    while (current_layer->next_layer != NULL)
+        current_layer = current_layer->next_layer;
+    back_propagate(nn->learning_rate, current_layer, loss_matrix);
+
     return 0;
 }
 
+Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
+    Matrix * loss_matrix = alloc_matrix(y_true->rows, y_true->cols);
+    for (int i = 0; i < loss_matrix->rows; i++)
+        for (int j = 0; j < loss_matrix->cols; j++)
+            loss_matrix->array[i][j] = mean_squared_error_prime(y_true->array[i][j], y_pred->array[i][j]);
+    return loss_matrix;
+}
+
+double mean_squared_error_prime(double y_true, double y_pred) {
+    return 2.0 *(y_pred - y_true);
+}
+
+Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
+    Matrix * error = alloc_matrix(y_pred->rows, y_pred->cols);
+    int rows = y_pred->rows, cols = y_pred->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            error->array[i][j] = pow(y_pred->array[i][j] - y_true->array[i][j] , 2);
+    return error;
+}
+
+
+Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * output_error) {
+    if (current_layer->prev_layer == NULL)
+        return output_error;
+
+    Matrix * input_error = dot_product(output_error, transpose(convert_to_matrix(current_layer)));
+
+    back_propagate(learning_rate, current_layer->prev_layer, output_error);
+
+}
+
+void multiply_by (Matrix * matrix, double value) {
+    for (int i = 0; i < matrix->rows; i++)
+        for (int j = 0; j < matrix->cols; j++)
+            matrix->array[i][j] *= value;
+}
+
+// The classic feed_forward algorithm.
+// Implemented with recursion
+Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
+    if (current_layer->next_layer == NULL) {
+        current_layer->input = input;
+        return input;
+    }
+
+    current_layer->input = input;
+    Matrix * weights = convert_to_matrix(current_layer);
+    Matrix * output = dot_product(input, weights);
+
+    plus_biases(output, current_layer->next_layer);
+    relu(output);
+    current_layer->input = input;
+    current_layer->output = output;
+    free(weights);
+
+    return feed_forward_internal(output, current_layer->next_layer);
+}
+
+
+void display_datapoint(Data * data) {
+    printf("X:\n");
+    display_matrix(data->x);
+    printf("Y:\n");
+    display_matrix(data->y);
+}
+
+// Allocate memory for a datapoint
+Data * alloc_data() {
+    Data * data_point = (Data *) malloc(sizeof(Data) * 1);
+    data_point->x = NULL;
+    data_point->y = NULL;
+    return data_point;
+}
+
+// Generates a random matrix given rows and columns
 Matrix * rand_matrix(int rows, int cols) {
     Matrix * matrix = alloc_matrix(rows, cols);
     random_populate(matrix);
@@ -120,7 +272,7 @@ void element_wise_addition(Matrix * m1, Matrix * m2) {
 void element_wise_multiplication(Matrix * m1, Matrix * m2) {
 
     if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise addition\n");
+        printf("Mismatching dimensions for element-wise multiplication\n");
         exit(1);
     }
     int rows = m1->rows, cols = m2->cols;
@@ -133,7 +285,7 @@ void element_wise_multiplication(Matrix * m1, Matrix * m2) {
 void element_wise_division(Matrix * m1, Matrix * m2) {
 
     if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise addition\n");
+        printf("Mismatching dimensions for element-wise division\n");
         exit(1);
     }
     int rows = m1->rows, cols = m2->cols;
@@ -145,7 +297,7 @@ void element_wise_division(Matrix * m1, Matrix * m2) {
 // Element-wise subtraction between matrices (order matters)
 void element_wise_subtraction(Matrix * m1, Matrix * m2) {
     if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise addition\n");
+        printf("Mismatching dimensions for element-wise subtraction\n");
         exit(1);
     }
     int rows = m1->rows, cols = m2->cols;
@@ -153,22 +305,6 @@ void element_wise_subtraction(Matrix * m1, Matrix * m2) {
         for (int j = 0; j < cols; j++)
             m1->array[i][j] -= m2->array[i][j];
 }
-/*
-Matrix * back_propagate(NN * nn, Matrix * y_true, Matrix * y_pred) {
-    Layer * current_layer = nn->input_layer;
-    while (current_layer->next_layer != NULL)
-        current_layer = current_layer->next_layer;
-
-    Matrix * output_error
-    while (current_layer->prev_layer != NULL) {
-
-    }
-    Matrix * output_error = mean_squared_error(y_pred, y_true);
-
-
-
-}
-*/
 
 // Print the shape of the given matrix
 void print_shape(Matrix * matrix) {
@@ -190,24 +326,6 @@ Matrix * rand_input(NN * nn) {
 // User friendly abstraction over feed_forward(input, nn->input_layer)
 Matrix * feed_forward(Matrix * input, NN * nn) {
     return feed_forward_internal(input, nn->input_layer);
-}
-
-// The classic feed_forward algorithm.
-// Implemented with recursion
-Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
-    if (current_layer->next_layer == NULL)
-        return input;
-
-    Matrix * weights = convert_to_matrix(current_layer);
-    Matrix * output = dot_product(input, weights);
-    plus_biases(output, current_layer->next_layer);
-    relu(output);
-    free(weights);
-
-    if (current_layer->prev_layer != NULL)
-        free_matrix(input);
-
-    return feed_forward_internal(output, current_layer->next_layer);
 }
 
 // Element-wise addition of matrices
