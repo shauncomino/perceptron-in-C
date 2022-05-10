@@ -76,6 +76,7 @@ NN * init_NN(double learning_rate);
 void add_layer(NN * neural_network, int nodes);
 Matrix * rand_input(NN * nn);
 void plus_biases(Matrix * matrix, Layer * layer);
+Matrix * predict(Matrix * input, NN * nn);
 
 // Training functions
 Matrix * feed_forward(Matrix * input, NN * nn);
@@ -117,8 +118,9 @@ int main (void)
 
     NN * nn = init_NN(0.001);
     add_layer(nn, 2);
-    add_layer(nn, 4);
-    add_layer(nn, 4);
+    add_layer(nn, 20);
+    add_layer(nn, 20);
+    add_layer(nn, 20);
     add_layer(nn, 1);
 
     Data * data_point1 = alloc_data();
@@ -169,9 +171,27 @@ int main (void)
     dataset->y[3] = data_point4->y;
 
     fit (nn, dataset, 1000);
+    Matrix * input = alloc_matrix(1, 2);
+    Matrix * output = predict(input, nn);
+
+    printf("\n /|\\ Predictions /|\\\n");
+    printf(" \\|/             \\|/\n");
+    printf("\tInput:\n");
+    display_matrix(input);
+    printf("\tOutput:\n");
+    display_matrix(output);
+    free_NN(nn);
+    nn = NULL;
     return 0;
 }
 
+// Predict given the input
+Matrix * predict(Matrix * input, NN * nn) {
+    Matrix * output = feed_forward(input, nn);
+    return output;
+}
+
+// Display the given dataset
 void display_dataset(Dataset * dataset) {
     printf("Dataset of %d examples\n", dataset->num_examples);
     for (int i = 0; i < dataset->num_examples; i++) {
@@ -223,7 +243,7 @@ Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
     relu(output);
     current_layer->input = input;
     current_layer->output = output;
-    //free(weights);
+    free(weights);
 
     return feed_forward_internal(output, current_layer->next_layer);
 }
@@ -263,6 +283,8 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     relu_prime(input_error);
     // Recursively call with the input error
     back_propagate(learning_rate, current_layer->prev_layer, input_error);
+    free(weights);
+
 }
 
 // Primeify the loss to tell each weight how to adjust
@@ -743,7 +765,6 @@ void display_matrix(Matrix * matrix) {
             printf("\n");
       }
    }
-   printf("\n\n");
 }
 
 // Populates a matrix with random values (-1, 1)
