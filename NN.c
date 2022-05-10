@@ -55,6 +55,7 @@ void element_wise_multiplication(Matrix * m1, Matrix * m2);
 void element_wise_subtraction(Matrix * m1, Matrix * m2);
 void element_wise_division(Matrix * m1, Matrix * m2);
 int element_wiseable(Matrix * m1, Matrix * m2);
+void element_wise_subtraction_inclusive(Matrix * m1, Matrix * m2);
 
 // Layer Operations
 Layer * init_layer(int node_count);
@@ -75,6 +76,8 @@ void plus_biases(Matrix * matrix, Layer * layer);
 Matrix * feed_forward(Matrix * input, NN * nn);
 Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
 Matrix * back_propagate(double learning_rate, Layer * layer, Matrix * output_error);
+void update_weights(Layer * layer, Matrix * new_weights);
+void update_bias(Layer * layer, Matrix * bias);
 
 // Display functions
 void display_node(Node * node);
@@ -157,9 +160,6 @@ int main (void)
 
     Matrix * loss_matrix = loss_prime(y_pred, y_true);
     printf("Error was: %lf\n", loss);
-    printf("Loss matrix:\n");
-    display_matrix(loss_matrix);
-
     Layer * current_layer = nn->input_layer;
     while (current_layer->next_layer != NULL)
         current_layer = current_layer->next_layer;
@@ -193,13 +193,46 @@ Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
 Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * output_error) {
     if (current_layer->prev_layer == NULL)
         return output_error;
+    Matrix * weights = convert_to_matrix(current_layer->prev_layer);
+    Matrix * weights_T = transpose(copy_matrix(weights));
+    Matrix * input_error = dot_product(output_error, weights_T);
+    Matrix * bias = nodes_to_matrix(current_layer);
+    Matrix * input_T = transpose(current_layer->prev_layer->input);
+    Matrix * weights_error = dot_product(input_T, output_error);
 
-    Matrix * input_error = dot_product(output_error, transpose(convert_to_matrix(current_layer)));
+    multiply_by(weights_error, learning_rate);
+    multiply_by(output_error, learning_rate);
 
-    back_propagate(learning_rate, current_layer->prev_layer, output_error);
+
+    // Subtract the error from each first
+    element_wise_subtraction(weights, weights_error);
+    element_wise_subtraction(bias, output_error);
+
+    // Update the weights and biases
+    update_weights(current_layer->prev_layer, weights);
+    update_bias(current_layer, bias);
+
+    // Recursively call with the input error
+    back_propagate(learning_rate, current_layer->prev_layer, input_error);
 
 }
 
+// Update the weights to the new weights
+void update_weights(Layer * layer, Matrix * new_weights) {
+    int rows = new_weights->rows, cols = new_weights->cols;
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            layer->nodes[i]->weights[j] = new_weights->array[i][j];
+}
+
+// Update the bias to the new bias
+void update_bias(Layer * layer, Matrix * bias) {
+    int rows = bias->rows, cols = bias->cols;
+    for (int i = 0; i < rows; ++i)
+        layer->nodes[i]->bias = bias->array[i][0];
+}
+
+// Multiply each element in a matrix by some number
 void multiply_by (Matrix * matrix, double value) {
     for (int i = 0; i < matrix->rows; i++)
         for (int j = 0; j < matrix->cols; j++)
@@ -227,7 +260,7 @@ Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
     return feed_forward_internal(output, current_layer->next_layer);
 }
 
-
+// Display one point of data
 void display_datapoint(Data * data) {
     printf("X:\n");
     display_matrix(data->x);
@@ -250,60 +283,88 @@ Matrix * rand_matrix(int rows, int cols) {
     return matrix;
 }
 
-// Determines if the given matrices can be accessed element-wise
+// Determines if two matrices can be accessed element wise
 int element_wiseable(Matrix * m1, Matrix * m2) {
-    return (m1->rows == m2->rows && m1->cols == m2->cols);
+    return ((m1->rows == m2->rows && m1->cols == m2->cols) || (m1->rows == m2->cols && m1->cols == m1->rows) || (m1->cols == m2->rows && m1->rows == m2->cols));
 }
 
-// Element-wise addition between matrices
+// Element-wise subtraction so long as either the rows equal the rows,
+// or the rows equal the columns and vice versa
+void element_wise_subtraction(Matrix * m1, Matrix * m2) {
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for inclusive element-wise subtraction!\n");
+        printf("Matrix 1:\n");
+        display_matrix(m1);
+        printf("Matrix 2:\n");
+        display_matrix(m2);
+        exit(1);
+    }
+
+    int r1 = m1->rows, c1 = m1->cols, r2 = m2->rows, c2 = m2->cols;
+    if (r1 == r2 && c1 == c2) {
+        for (int i = 0; i < r1; ++i)
+            for (int j = 0; j < c1; ++j)
+                m1->array[i][j] -= m2->array[i][j];
+    } else if (r1 == c2 && c1 == r2) {
+        Matrix * m2_copy = copy_matrix(m2);
+        Matrix * temp = transpose(m2_copy);
+        element_wise_subtraction(m1, temp);
+        free_matrix(m2_copy);
+        free_matrix(temp);
+    }
+}
+
+// Element-wise addition so long as either the rows equal the rows,
+// or the rows equal the columns and vice versa
 void element_wise_addition(Matrix * m1, Matrix * m2) {
 
     if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise addition\n");
+        printf("Mismatching dimensions for element-wise addition!\n");
+        printf("Matrix 1:\n");
+        display_matrix(m1);
+        printf("Matrix 2:\n");
+        display_matrix(m2);
         exit(1);
     }
-    int rows = m1->rows, cols = m1->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            m1->array[i][j] += m2->array[i][j];
-}
 
-// Element-wise multiplication between matrices
-void element_wise_multiplication(Matrix * m1, Matrix * m2) {
-
-    if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise multiplication\n");
-        exit(1);
+    int r1 = m1->rows, c1 = m1->cols, r2 = m2->rows, c2 = m2->cols;
+    if (r1 == r2 && c1 == c2) {
+        for (int i = 0; i < r1; ++i)
+            for (int j = 0; j < c1; ++j)
+                m1->array[i][j] += m2->array[i][j];
+    } else if (r1 == c2 && c1 == r2) {
+        Matrix * m2_copy = copy_matrix(m2);
+        Matrix * temp = transpose(m2_copy);
+        element_wise_addition(m1, temp);
+        free_matrix(m2_copy);
+        free_matrix(temp);
     }
-    int rows = m1->rows, cols = m2->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            m1->array[i][j] *= m2->array[i][j];
 }
 
-// Element-wise division between matrices (order matters)
+// Element-wise division so long as either the rows equal the rows,
+// or the rows equal the columns and vice versa
 void element_wise_division(Matrix * m1, Matrix * m2) {
-
     if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise division\n");
+        printf("Mismatching dimensions for element-wise division!\n");
+        printf("Matrix 1:\n");
+        display_matrix(m1);
+        printf("Matrix 2:\n");
+        display_matrix(m2);
         exit(1);
     }
-    int rows = m1->rows, cols = m2->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            m1->array[i][j] /= m2->array[i][j];
-}
 
-// Element-wise subtraction between matrices (order matters)
-void element_wise_subtraction(Matrix * m1, Matrix * m2) {
-    if (!element_wiseable(m1, m2)) {
-        printf("Mismatching dimensions for element-wise subtraction\n");
-        exit(1);
+    int r1 = m1->rows, c1 = m1->cols, r2 = m2->rows, c2 = m2->cols;
+    if (r1 == r2 && c1 == c2) {
+        for (int i = 0; i < r1; ++i)
+            for (int j = 0; j < c1; ++j)
+                m1->array[i][j] /= m2->array[i][j];
+    } else if (r1 == c2 && c1 == r2) {
+        Matrix * m2_copy = copy_matrix(m2);
+        Matrix * temp = transpose(m2_copy);
+        element_wise_division(m1, temp);
+        free_matrix(m2_copy);
+        free_matrix(temp);
     }
-    int rows = m1->rows, cols = m2->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            m1->array[i][j] -= m2->array[i][j];
 }
 
 // Print the shape of the given matrix
@@ -644,6 +705,10 @@ Matrix * dot_product(Matrix * m1, Matrix * m2)
     // Check for mismatching dimensions
     if (m1->cols != m2->rows) {
         printf("Mismatching matrices dimensions!\n");
+        printf("Matrix 1:\n");
+        display_matrix(m1);
+        printf("Matrix 2:\n");
+        display_matrix(m2);
         exit(1);
     }
 
