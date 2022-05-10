@@ -55,7 +55,6 @@ void element_wise_multiplication(Matrix * m1, Matrix * m2);
 void element_wise_subtraction(Matrix * m1, Matrix * m2);
 void element_wise_division(Matrix * m1, Matrix * m2);
 int element_wiseable(Matrix * m1, Matrix * m2);
-void element_wise_subtraction_inclusive(Matrix * m1, Matrix * m2);
 
 // Layer Operations
 Layer * init_layer(int node_count);
@@ -95,7 +94,6 @@ void free_matrix(Matrix * matrix);
 // Activation functions
 void relu(Matrix * matrix);
 void relu_prime(Matrix * matrix);
-
 
 // Cost functions
 double mean_squared_error(Matrix * y_pred, Matrix * y_true);
@@ -168,6 +166,7 @@ int main (void)
     return 0;
 }
 
+// Primeify the loss to tell each weight how to adjust
 Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
     Matrix * loss_matrix = alloc_matrix(y_true->rows, y_true->cols);
     for (int i = 0; i < loss_matrix->rows; i++)
@@ -176,10 +175,12 @@ Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
     return loss_matrix;
 }
 
+// The prime of x^2
 double mean_squared_error_prime(double y_true, double y_pred) {
     return 2.0 *(y_pred - y_true);
 }
 
+// Get the mean squared error of both matrices
 Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
     Matrix * error = alloc_matrix(y_pred->rows, y_pred->cols);
     int rows = y_pred->rows, cols = y_pred->cols;
@@ -189,15 +190,21 @@ Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
     return error;
 }
 
-
+// Classic backpropagation algorithm implemented with recursion
+// because why not
 Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * output_error) {
     if (current_layer->prev_layer == NULL)
         return output_error;
+
+    // Allocation and declaration of all necessary matrices
+    // for the backpropagation algorithm
     Matrix * weights = convert_to_matrix(current_layer->prev_layer);
-    Matrix * weights_T = transpose(copy_matrix(weights));
+    Matrix * weights_copy = copy_matrix(weights);
+    Matrix * weights_T = transpose(weights_copy);
     Matrix * input_error = dot_product(output_error, weights_T);
     Matrix * bias = nodes_to_matrix(current_layer);
-    Matrix * input_T = transpose(current_layer->prev_layer->input);
+    Matrix * input_copy = copy_matrix(current_layer->prev_layer->input);
+    Matrix * input_T = transpose(input_copy);
     Matrix * weights_error = dot_product(input_T, output_error);
 
     multiply_by(weights_error, learning_rate);
@@ -212,8 +219,26 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     update_weights(current_layer->prev_layer, weights);
     update_bias(current_layer, bias);
 
+    // Apply the derivative of the activation function to the input_error
+    relu_prime(input_error);
     // Recursively call with the input error
     back_propagate(learning_rate, current_layer->prev_layer, input_error);
+}
+
+// Update each element x of the matrix to be the
+// slope of the relu function at x
+void relu_prime(Matrix * matrix) {
+    int rows = matrix->rows, cols = matrix->cols;
+    double num;
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            num = matrix->array[i][j];
+            if (num <= 0)
+                matrix->array[i][j] = 0;
+            else
+                matrix->array[i][j] = 1;
+        }
+    }
 
 }
 
