@@ -31,6 +31,12 @@ typedef struct {
 } NN;
 
 typedef struct {
+    Matrix ** x;
+    Matrix ** y;
+    int num_examples;
+} Dataset;
+
+typedef struct {
     Matrix * x;
     Matrix * y;
 } Data;
@@ -77,6 +83,7 @@ Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
 Matrix * back_propagate(double learning_rate, Layer * layer, Matrix * output_error);
 void update_weights(Layer * layer, Matrix * new_weights);
 void update_bias(Layer * layer, Matrix * bias);
+void fit (NN * nn, Dataset * dataset, int epochs);
 
 // Display functions
 void display_node(Node * node);
@@ -85,6 +92,7 @@ void display_NN(NN * nn);
 void display_weights(Layer * layer);
 void display_NN_with_weights(NN * nn);
 void display_datapoint(Data * data);
+void display_dataset(Dataset * dataset);
 
 // Free Functions
 void free_NN(NN * nn);
@@ -97,6 +105,7 @@ void relu_prime(Matrix * matrix);
 
 // Cost functions
 double mean_squared_error(Matrix * y_pred, Matrix * y_true);
+Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true);
 Matrix * loss_prime(Matrix * y_true, Matrix * y_pred);
 double mean_squared_error_prime(double y_true, double y_pred);
 
@@ -145,49 +154,78 @@ int main (void)
     data_point4->y->array[0][0] = 1;
 
     // All combinations of XOR allocated ^
+    Dataset * dataset = (Dataset *) malloc(sizeof(Dataset) * 1);
+    dataset->num_examples = 4;
+    dataset->x = (Matrix **) malloc (sizeof(Matrix *) * 4);
+    dataset->y = (Matrix **) malloc (sizeof(Matrix *) * 4);;
 
-    Matrix * out = feed_forward(data_point1->x, nn);
-    Matrix * y_pred = out;
-    Matrix * y_true = data_point1->y;
-    printf("Prediction:\n");
-    display_matrix(y_pred);
-    printf("Actual:\n");
-    display_matrix(y_true);
+    dataset->x[0] = data_point1->x;
+    dataset->y[0] = data_point1->y;
+    dataset->x[1] = data_point2->x;
+    dataset->y[1] = data_point2->y;
+    dataset->x[2] = data_point3->x;
+    dataset->y[2] = data_point3->y;
+    dataset->x[3] = data_point4->x;
+    dataset->y[3] = data_point4->y;
 
-    double loss = mean_squared_error(y_pred, y_true);
-
-    Matrix * loss_matrix = loss_prime(y_pred, y_true);
-    printf("Error was: %lf\n", loss);
-    Layer * current_layer = nn->input_layer;
-    while (current_layer->next_layer != NULL)
-        current_layer = current_layer->next_layer;
-    back_propagate(nn->learning_rate, current_layer, loss_matrix);
-
+    fit (nn, dataset, 1000);
     return 0;
 }
 
-// Primeify the loss to tell each weight how to adjust
-Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
-    Matrix * loss_matrix = alloc_matrix(y_true->rows, y_true->cols);
-    for (int i = 0; i < loss_matrix->rows; i++)
-        for (int j = 0; j < loss_matrix->cols; j++)
-            loss_matrix->array[i][j] = mean_squared_error_prime(y_true->array[i][j], y_pred->array[i][j]);
-    return loss_matrix;
+void display_dataset(Dataset * dataset) {
+    printf("Dataset of %d examples\n", dataset->num_examples);
+    for (int i = 0; i < dataset->num_examples; i++) {
+        printf("X%d:\n", i);
+        display_matrix(dataset->x[i]);
+        printf("Y%d:\n", i);
+        display_matrix(dataset->y[i]);
+    }
 }
 
-// The prime of x^2
-double mean_squared_error_prime(double y_true, double y_pred) {
-    return 2.0 *(y_pred - y_true);
+// Takes a Dataset struct to fit the model.
+// This function is for supervised learning
+// It is assumed that matching indices are correlated datapoints
+void fit (NN * nn, Dataset * dataset, int epochs) {
+
+    Layer * last_layer = nn->input_layer;
+    while (last_layer->next_layer != NULL)
+        last_layer = last_layer->next_layer;
+
+    double err = 0;
+    Matrix * output;
+    Matrix * error;
+    for (int i = 0; i < epochs; i++) {
+        for (int j = 0; j < dataset->num_examples; j++) {
+            output = feed_forward(dataset->x[j], nn);
+            err += mean_squared_error(copy_matrix(output), copy_matrix(dataset->y[j]));
+            error = loss_prime(copy_matrix(output), copy_matrix(dataset->y[j]));
+            back_propagate(nn->learning_rate, last_layer, error);
+        }
+        err /= dataset->num_examples;
+        printf("<-> Epoch: %d, Error: %lf <->\n", i + 1, err);
+    }
+
 }
 
-// Get the mean squared error of both matrices
-Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
-    Matrix * error = alloc_matrix(y_pred->rows, y_pred->cols);
-    int rows = y_pred->rows, cols = y_pred->cols;
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            error->array[i][j] = pow(y_pred->array[i][j] - y_true->array[i][j] , 2);
-    return error;
+// The classic feed_forward algorithm.
+// Implemented with recursion
+Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
+    if (current_layer->next_layer == NULL) {
+        current_layer->input = input;
+        return input;
+    }
+
+    current_layer->input = input;
+    Matrix * weights = convert_to_matrix(current_layer);
+    Matrix * output = dot_product(input, weights);
+
+    plus_biases(output, current_layer->next_layer);
+    relu(output);
+    current_layer->input = input;
+    current_layer->output = output;
+    //free(weights);
+
+    return feed_forward_internal(output, current_layer->next_layer);
 }
 
 // Classic backpropagation algorithm implemented with recursion
@@ -206,6 +244,7 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     Matrix * input_copy = copy_matrix(current_layer->prev_layer->input);
     Matrix * input_T = transpose(input_copy);
     Matrix * weights_error = dot_product(input_T, output_error);
+    // ^ this is disgusting I hate it
 
     multiply_by(weights_error, learning_rate);
     multiply_by(output_error, learning_rate);
@@ -220,9 +259,52 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     update_bias(current_layer, bias);
 
     // Apply the derivative of the activation function to the input_error
+    // Every layer is activated, so this works
     relu_prime(input_error);
     // Recursively call with the input error
     back_propagate(learning_rate, current_layer->prev_layer, input_error);
+}
+
+// Primeify the loss to tell each weight how to adjust
+Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
+    Matrix * loss_matrix = alloc_matrix(y_true->rows, y_true->cols);
+    for (int i = 0; i < loss_matrix->rows; i++)
+        for (int j = 0; j < loss_matrix->cols; j++)
+            loss_matrix->array[i][j] = mean_squared_error_prime(y_true->array[i][j], y_pred->array[i][j]);
+    return loss_matrix;
+}
+
+// Calculate the error for one example
+double mean_square_error(Matrix * y_pred, Matrix * y_true) {
+    if (!element_wiseable(y_pred, y_true)) {
+        printf("Cannot calculate error on mismatching dimensions!\n");
+        printf("Matrix 1:\n");
+        display_matrix(y_pred);
+        printf("Matrix 2:\n");
+        display_matrix(y_true);
+    }
+    double error = 0;
+    int rows = y_pred->rows, cols = y_pred->cols;
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            error += pow((y_true->array[i][j] - y_pred->array[i][j]), 2);
+    error /= rows;
+    return error;
+}
+
+// The prime of x^2
+double mean_squared_error_prime(double y_pred, double y_true) {
+    return 2.0 *(y_pred - y_true);
+}
+
+// Get the mean squared error of both matrices
+Matrix * mean_squared_error_matrices(Matrix * y_pred, Matrix * y_true) {
+    Matrix * error = alloc_matrix(y_pred->rows, y_pred->cols);
+    int rows = y_pred->rows, cols = y_pred->cols;
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            error->array[i][j] = pow(y_pred->array[i][j] - y_true->array[i][j] , 2);
+    return error;
 }
 
 // Update each element x of the matrix to be the
@@ -262,27 +344,6 @@ void multiply_by (Matrix * matrix, double value) {
     for (int i = 0; i < matrix->rows; i++)
         for (int j = 0; j < matrix->cols; j++)
             matrix->array[i][j] *= value;
-}
-
-// The classic feed_forward algorithm.
-// Implemented with recursion
-Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
-    if (current_layer->next_layer == NULL) {
-        current_layer->input = input;
-        return input;
-    }
-
-    current_layer->input = input;
-    Matrix * weights = convert_to_matrix(current_layer);
-    Matrix * output = dot_product(input, weights);
-
-    plus_biases(output, current_layer->next_layer);
-    relu(output);
-    current_layer->input = input;
-    current_layer->output = output;
-    free(weights);
-
-    return feed_forward_internal(output, current_layer->next_layer);
 }
 
 // Display one point of data
