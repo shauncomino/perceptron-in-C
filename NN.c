@@ -84,7 +84,8 @@ Matrix * predict(Matrix * input, NN * nn);
 // Training Operations
 Matrix * feed_forward(Matrix * input, NN * nn);
 Matrix * feed_forward_internal(Matrix * input, Layer * current_layer);
-Matrix * back_propagate(double learning_rate, Layer * layer, Matrix * output_error);
+
+void back_propagate(NN * nn, Matrix * output_error);
 void update_weights(Layer * layer, Matrix * new_weights);
 void update_bias(Layer * layer, Matrix * bias);
 void fit (NN * nn, Dataset * dataset, int epochs);
@@ -102,6 +103,7 @@ void display_dataset(Dataset * dataset);
 void free_NN(NN * nn);
 void free_NN_layer(Layer * curr_layer);
 void free_matrix(Matrix * matrix);
+void free_inputs_outputs(Layer * input_layer);
 
 // Activation functions
 void relu(Matrix * matrix);
@@ -123,18 +125,17 @@ int main (void)
 {
     srand(time(NULL));
 
-    Dataset * auto_set = generate_not_dataset(100, 3);
+    Dataset * auto_set = generate_not_dataset(100, 10);
 
     NN * nn = init_NN(0.001);
-    add_layer(nn, 3);
-    add_layer(nn, 16);
-    add_layer(nn, 16);
-    add_layer(nn, 16);
-    add_layer(nn, 3);
+    add_layer(nn, 10);
+    add_layer(nn, 20);
+    add_layer(nn, 20);
+    add_layer(nn, 10);
 
-    fit (nn, auto_set, 700);
+    fit (nn, auto_set, 1000);
 
-    Matrix * not_point = generate_not_datapoint_x(3);
+    Matrix * not_point = generate_not_datapoint_x(10);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
@@ -142,8 +143,11 @@ int main (void)
     display_matrix(not_point);
     printf("\tOutput:\n");
     display_matrix(output);
+
     free_NN(nn);
     nn = NULL;
+    free_matrix(not_point);
+    free_matrix(output);
 
     return 0;
 }
@@ -194,7 +198,17 @@ Dataset * generate_not_dataset(int num_samples, int sample_length) {
 // Predict given the input
 Matrix * predict(Matrix * input, NN * nn) {
     Matrix * output = feed_forward(input, nn);
+    free_inputs_outputs(nn->input_layer);
     return output;
+}
+
+void free_inputs_outputs(Layer * input_layer) {
+    Layer * current_layer = input_layer;
+    free_matrix(input_layer->input);
+    while (current_layer->next_layer != NULL) {
+        free_matrix(current_layer->output);
+        current_layer = current_layer->next_layer;
+    }
 }
 
 // Takes a Dataset struct to fit the model.
@@ -219,7 +233,8 @@ void fit (NN * nn, Dataset * dataset, int epochs) {
             err += mean_squared_error(output, datapoint_y);
 
             error = loss_prime(output, datapoint_y);
-            back_propagate(nn->learning_rate, last_layer, error);
+            back_propagate(nn, error);
+
             free_matrix(error);
             free_matrix(output);
             free_matrix(datapoint_x);
@@ -238,6 +253,8 @@ Matrix * feed_forward_internal(Matrix * input, Layer * input_layer) {
     Matrix * weights;
     Matrix * output;
 
+    current_layer = input_layer;
+
     while (current_layer->next_layer != NULL) {
 
         current_layer->input = input;
@@ -251,7 +268,6 @@ Matrix * feed_forward_internal(Matrix * input, Layer * input_layer) {
         current_layer = current_layer->next_layer;
 
     }
-    current_layer->output = output;
     return output;
 }
 
@@ -270,53 +286,61 @@ void update_bias(Layer * layer, Matrix * bias) {
         layer->nodes[i]->bias = bias->array[i][0];
 }
 
-// Classic backpropagation algorithm implemented with recursion
-Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * output_error) {
-    if (current_layer->prev_layer == NULL)
-        return output_error;
+// Classic backpropagation algorithm implemented iteratively
+void back_propagate(NN * nn, Matrix * output_error) {
+    Layer * last_layer = nn->input_layer;
+    while (last_layer->next_layer != NULL)
+        last_layer = last_layer->next_layer;
 
-    // Allocation and declaration of all necessary matrices
-    // for the backpropagation algorithm
-    Matrix * weights = convert_to_matrix(current_layer->prev_layer);
-    Matrix * weights_copy = copy_matrix(weights);
-    Matrix * weights_T = transpose_destroy(weights_copy);
+    Layer * current_layer = last_layer;
 
-    Matrix * input_error = dot_product(output_error, weights_T);
-    Matrix * bias = nodes_to_matrix(current_layer);
+    Matrix * weights;
+    Matrix * weights_copy;
+    Matrix * weights_T;
+    Matrix * input_error;
+    Matrix * bias;
+    Matrix * input_copy;
+    Matrix * input_T;
+    Matrix * weights_error;
+    Matrix * relu_output_error;
+    Matrix * relu_input;
+    Matrix * input;
 
-    Matrix * input_copy = copy_matrix(current_layer->prev_layer->input);
-    Matrix * input_T = transpose_destroy(input_copy);
-    Matrix * weights_error = dot_product(input_T, output_error);
-    // ^ this is disgusting and i hate it
+    while (current_layer->prev_layer != NULL) {
+        weights = convert_to_matrix(current_layer->prev_layer);
+        weights_T = transpose(weights);
 
-    multiply_by(weights_error, learning_rate);
-    multiply_by(output_error, learning_rate);
+        input_error = dot_product(output_error, weights_T);
+        bias = nodes_to_matrix(current_layer);
 
-    // Subtract the error from each first
-    element_wise_subtraction(weights, weights_error);
-    element_wise_subtraction(bias, output_error);
+        input = current_layer->prev_layer->input;
+        input_T = transpose(input);
+        weights_error = dot_product(input_T, output_error);
 
-    // Update the weights and biases
-    update_weights(current_layer->prev_layer, weights);
-    update_bias(current_layer, bias);
+        multiply_by(weights_error, nn->learning_rate);
+        multiply_by(output_error, nn->learning_rate);
 
-    // Apply the derivative of the activation function to the input_error
-    // Every layer is activated, so this works
-    Matrix * relu_output_error = input_error;
-    Matrix * relu_input = current_layer->prev_layer->input;
-    relu_prime(relu_input);
-    element_wise_multiplication(relu_input, relu_output_error);
+        element_wise_subtraction(weights, weights_error);
+        element_wise_subtraction(bias, output_error);
 
-    // Recursively call with the input error
-    back_propagate(learning_rate, current_layer->prev_layer, relu_input);
-    free_matrix(input_error);
-    free_matrix(output_error);
-    free_matrix(bias);
-    free_matrix(weights_error);
-    free_matrix(relu_input);
-    free(input_copy);
-    free(weights);
+        update_weights(current_layer->prev_layer, weights);
+        update_bias(current_layer, bias);
 
+        relu_output_error = input_error;
+        relu_input = current_layer->prev_layer->input;
+        relu_prime(relu_input);
+        element_wise_multiplication(relu_input, relu_output_error);
+
+        output_error = relu_input;
+        current_layer = current_layer->prev_layer;
+
+        // Free that memory!
+        free_matrix(input_error);
+        free_matrix(bias);
+        free_matrix(weights_error);
+        free(weights);
+    }
+    free_inputs_outputs(nn->input_layer);
 }
 
 ///                              ///
@@ -329,25 +353,9 @@ Matrix * loss_prime(Matrix * y_true, Matrix * y_pred) {
     for (int i = 0; i < loss_matrix->rows; i++)
         for (int j = 0; j < loss_matrix->cols; j++)
             loss_matrix->array[i][j] = mean_squared_error_prime(y_true->array[i][j], y_pred->array[i][j]);
+    free_matrix(y_true);
+    free_matrix(y_pred);
     return loss_matrix;
-}
-
-// Calculate the error for one example
-double mean_square_error(Matrix * y_pred, Matrix * y_true) {
-    if (!element_wiseable(y_pred, y_true)) {
-        printf("Cannot calculate error on mismatching dimensions!\n");
-        printf("Matrix 1:\n");
-        display_matrix(y_pred);
-        printf("Matrix 2:\n");
-        display_matrix(y_true);
-    }
-    double error = 0;
-    int rows = y_pred->rows, cols = y_pred->cols;
-    for (int i = 0; i < rows; ++i)
-        for (int j = 0; j < cols; ++j)
-            error += pow((y_true->array[i][j] - y_pred->array[i][j]), 2);
-    error /= rows;
-    return error;
 }
 
 // The prime of x^2
@@ -625,7 +633,10 @@ Matrix * copy_matrix(Matrix * matrix) {
 // Makes an implicit matrix from a layer of dimensions
 // (curr_layer->node_count X next_layer->node_count)
 Matrix * convert_to_matrix(Layer * layer) {
-    Matrix * matrix = alloc_matrix(layer->node_count, layer->next_layer->node_count);
+    Matrix * matrix = (Matrix *) malloc(sizeof(Matrix) * 1);
+    matrix->rows = layer->node_count;
+    matrix->cols = layer->next_layer->node_count;
+    matrix->array = (double **) malloc(sizeof(double *) * matrix->rows);
     for (int i = 0; i < layer->node_count; i++)
         matrix->array[i] = layer->nodes[i]->weights;
     return matrix;
