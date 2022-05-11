@@ -123,18 +123,18 @@ int main (void)
 {
     srand(time(NULL));
 
-    Dataset * auto_set = generate_not_dataset(100, 8);
+    Dataset * auto_set = generate_not_dataset(100, 3);
 
     NN * nn = init_NN(0.001);
-    add_layer(nn, 8);
+    add_layer(nn, 3);
     add_layer(nn, 16);
     add_layer(nn, 16);
     add_layer(nn, 16);
-    add_layer(nn, 8);
+    add_layer(nn, 3);
 
-    fit (nn, auto_set, 750);
+    fit (nn, auto_set, 700);
 
-    Matrix * not_point = generate_not_datapoint_x(8);
+    Matrix * not_point = generate_not_datapoint_x(3);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
@@ -169,7 +169,11 @@ Matrix * generate_not_datapoint_y(Matrix * x) {
     return not_y;
 }
 
-
+// Generates x and y values in this relation:
+/*
+    x: [ 0 1 0 0 1 1 0 ]
+    y: [ 1 0 1 1 0 0 1 ]
+*/
 Dataset * generate_not_dataset(int num_samples, int sample_length) {
     Dataset * dataset = (Dataset *) malloc(sizeof(Dataset) * 1);
     dataset->x = (Matrix **) malloc(sizeof(Matrix *) * num_samples);
@@ -222,31 +226,33 @@ void fit (NN * nn, Dataset * dataset, int epochs) {
             free_matrix(datapoint_y);
         }
         err /= dataset->num_examples;
-        printf("<-> Epoch: %d, Error: %lf <->\n", i + 1, err);
+        printf("<-> Epoch: %4.d, Error: %lf <->\n", i + 1, err);
     }
 
 }
 
 // The classic feed_forward algorithm.
-// Implemented with recursion
-Matrix * feed_forward_internal(Matrix * input, Layer * current_layer) {
-    if (current_layer->next_layer == NULL) {
+// Implemented iteratively
+Matrix * feed_forward_internal(Matrix * input, Layer * input_layer) {
+    Layer * current_layer = input_layer;
+    Matrix * weights;
+    Matrix * output;
+
+    while (current_layer->next_layer != NULL) {
+
         current_layer->input = input;
-        return input;
+        weights = convert_to_matrix(current_layer);
+        output = dot_product(input, weights);
+        plus_biases(output, current_layer->next_layer);
+        relu(output);
+        current_layer->output = output;
+        input = output;
+        free(weights);
+        current_layer = current_layer->next_layer;
+
     }
-
-    current_layer->input = input;
-    Matrix * weights = convert_to_matrix(current_layer);
-    Matrix * output = dot_product(input, weights);
-
-    plus_biases(output, current_layer->next_layer);
-    relu(output);
-    current_layer->input = input;
     current_layer->output = output;
-
-    free(weights);
-
-    return feed_forward_internal(output, current_layer->next_layer);
+    return output;
 }
 
 // Update the weights to the new weights
@@ -274,8 +280,10 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     Matrix * weights = convert_to_matrix(current_layer->prev_layer);
     Matrix * weights_copy = copy_matrix(weights);
     Matrix * weights_T = transpose_destroy(weights_copy);
+
     Matrix * input_error = dot_product(output_error, weights_T);
     Matrix * bias = nodes_to_matrix(current_layer);
+
     Matrix * input_copy = copy_matrix(current_layer->prev_layer->input);
     Matrix * input_T = transpose_destroy(input_copy);
     Matrix * weights_error = dot_product(input_T, output_error);
@@ -283,7 +291,6 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
 
     multiply_by(weights_error, learning_rate);
     multiply_by(output_error, learning_rate);
-
 
     // Subtract the error from each first
     element_wise_subtraction(weights, weights_error);
@@ -306,6 +313,8 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
     free_matrix(output_error);
     free_matrix(bias);
     free_matrix(weights_error);
+    free_matrix(relu_input);
+    free(input_copy);
     free(weights);
 
 }
@@ -730,8 +739,8 @@ void free_NN_layer(Layer * curr_layer) {
         curr_layer->nodes[i]->weights = NULL;
         free(curr_layer->nodes[i]);
         curr_layer->nodes[i] = NULL;
-    }
 
+    }
     free(curr_layer->nodes);
     curr_layer->nodes = NULL;
     free(curr_layer);
@@ -800,6 +809,8 @@ Layer * init_layer(int node_count) {
     new_layer->prev_layer = NULL;
     new_layer->node_count = node_count;
     new_layer->nodes = (Node **) malloc(sizeof(Node *) * node_count);
+    new_layer->input = NULL;
+    new_layer->output = NULL;
     for (int i = 0; i < node_count; i++)
         new_layer->nodes[i] = init_node();
     return new_layer;
