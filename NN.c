@@ -115,8 +115,7 @@ double mean_squared_error_prime(double y_true, double y_pred);
 
 // Dataset operations
 Data * alloc_data();
-
-Dataset * generate_not_dataset(int num_samples);
+Dataset * generate_not_dataset(int num_samples, int sample_length);
 Matrix * generate_not_datapoint_x(int sample_length);
 Matrix * generate_not_datapoint_y(Matrix * x);
 
@@ -124,18 +123,18 @@ int main (void)
 {
     srand(time(NULL));
 
-    NN * nn = init_NN(0.001);
-    add_layer(nn, 5);
-    add_layer(nn, 20);
-    add_layer(nn, 20);
-    add_layer(nn, 20);
-    add_layer(nn, 5);
+    Dataset * auto_set = generate_not_dataset(100, 8);
 
-    Dataset * auto_set = generate_not_dataset(75);
+    NN * nn = init_NN(0.001);
+    add_layer(nn, 8);
+    add_layer(nn, 16);
+    add_layer(nn, 16);
+    add_layer(nn, 16);
+    add_layer(nn, 8);
 
     fit (nn, auto_set, 750);
 
-    Matrix * not_point = generate_not_datapoint_x(5);
+    Matrix * not_point = generate_not_datapoint_x(8);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
@@ -171,14 +170,14 @@ Matrix * generate_not_datapoint_y(Matrix * x) {
 }
 
 
-Dataset * generate_not_dataset(int num_samples) {
+Dataset * generate_not_dataset(int num_samples, int sample_length) {
     Dataset * dataset = (Dataset *) malloc(sizeof(Dataset) * 1);
     dataset->x = (Matrix **) malloc(sizeof(Matrix *) * num_samples);
     dataset->y = (Matrix **) malloc(sizeof(Matrix *) * num_samples);
     dataset->num_examples = num_samples;
-    int each_sample_len = 5;
+
     for (int i = 0; i < num_samples; i++) {
-        dataset->x[i] = generate_not_datapoint_x(5);
+        dataset->x[i] = generate_not_datapoint_x(sample_length);
         dataset->y[i] = generate_not_datapoint_y(dataset->x[i]);
     }
     return dataset;
@@ -296,9 +295,13 @@ Matrix * back_propagate(double learning_rate, Layer * current_layer, Matrix * ou
 
     // Apply the derivative of the activation function to the input_error
     // Every layer is activated, so this works
-    relu_prime(input_error);
+    Matrix * relu_output_error = input_error;
+    Matrix * relu_input = current_layer->prev_layer->input;
+    relu_prime(relu_input);
+    element_wise_multiplication(relu_input, relu_output_error);
+
     // Recursively call with the input error
-    back_propagate(learning_rate, current_layer->prev_layer, input_error);
+    back_propagate(learning_rate, current_layer->prev_layer, relu_input);
     free_matrix(input_error);
     free_matrix(output_error);
     free_matrix(bias);
@@ -501,6 +504,34 @@ void element_wise_subtraction(Matrix * m1, Matrix * m2) {
         free_matrix(temp);
     }
 }
+
+// Element-wise multiplication so long as either the rows equal the rows,
+// or the rows equal the columns and vice versa
+void element_wise_multiplication(Matrix * m1, Matrix * m2) {
+
+    if (!element_wiseable(m1, m2)) {
+        printf("Mismatching dimensions for element-wise multiplication!\n");
+        printf("Matrix 1:\n");
+        display_matrix(m1);
+        printf("Matrix 2:\n");
+        display_matrix(m2);
+        exit(1);
+    }
+
+    int r1 = m1->rows, c1 = m1->cols, r2 = m2->rows, c2 = m2->cols;
+    if (r1 == r2 && c1 == c2) {
+        for (int i = 0; i < r1; ++i)
+            for (int j = 0; j < c1; ++j)
+                m1->array[i][j] *= m2->array[i][j];
+    } else if (r1 == c2 && c1 == r2) {
+        Matrix * m2_copy = copy_matrix(m2);
+        Matrix * temp = transpose(m2_copy);
+        element_wise_multiplication(m1, temp);
+        free_matrix(m2_copy);
+        free_matrix(temp);
+    }
+}
+
 
 // Element-wise addition so long as either the rows equal the rows,
 // or the rows equal the columns and vice versa
@@ -727,7 +758,7 @@ NN * init_NN(double learning_rate) {
 // Initializes and allocates a Node * struct
 Node * init_node() {
     Node * new_node = (Node *) malloc(sizeof(Node) * 1);
-    new_node->bias = rand_in_range(-1.0, 1.0);
+    new_node->bias = rand_in_range(-0.1, 0.1);
     new_node->weights = NULL;
     return new_node;
 }
@@ -758,7 +789,7 @@ Matrix * alloc_matrix(int rows, int cols) {
 double * init_weights(int nodes) {
     double * weights = (double *) malloc(sizeof(double) * nodes);
     for (int i = 0; i < nodes; i++)
-        weights[i] = rand_in_range(-0.1, 0.1);
+        weights[i] = rand_in_range(-0.5, 0.5);
     return weights;
 }
 
