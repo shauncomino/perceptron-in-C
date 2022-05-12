@@ -120,22 +120,23 @@ Data * alloc_data();
 Dataset * generate_not_dataset(int num_samples, int sample_length);
 Matrix * generate_not_datapoint_x(int sample_length);
 Matrix * generate_not_datapoint_y(Matrix * x);
+void free_not_dataset(Dataset * dataset);
 
 int main (void)
 {
     srand(time(NULL));
 
-    Dataset * auto_set = generate_not_dataset(100, 10);
+    Dataset * auto_set = generate_not_dataset(100, 15);
 
     NN * nn = init_NN(0.001);
-    add_layer(nn, 10);
-    add_layer(nn, 20);
-    add_layer(nn, 20);
-    add_layer(nn, 10);
+    add_layer(nn, 15);
+    add_layer(nn, 40);
+    add_layer(nn, 40);
+    add_layer(nn, 15);
 
-    fit (nn, auto_set, 1000);
+    fit (nn, auto_set, 10000);
 
-    Matrix * not_point = generate_not_datapoint_x(10);
+    Matrix * not_point = generate_not_datapoint_x(15);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
@@ -148,6 +149,7 @@ int main (void)
     nn = NULL;
     free_matrix(not_point);
     free_matrix(output);
+    free_not_dataset(auto_set);
 
     return 0;
 }
@@ -155,6 +157,16 @@ int main (void)
 ///                    ///
 /// Dataset Operations ///
 ///                    ///
+
+void free_not_dataset(Dataset * dataset) {
+    for (int i = 0; i < dataset->num_examples; i++) {
+        free_matrix(dataset->x[i]);
+        free_matrix(dataset->y[i]);
+    }
+    free(dataset->x);
+    free(dataset->y);
+    free(dataset);
+}
 
 Matrix * generate_not_datapoint_x(int sample_length) {
     Matrix * not_x = alloc_matrix(1, sample_length);
@@ -264,7 +276,9 @@ Matrix * feed_forward_internal(Matrix * input, Layer * input_layer) {
         relu(output);
         current_layer->output = output;
         input = output;
+        free(weights->array);
         free(weights);
+
         current_layer = current_layer->next_layer;
 
     }
@@ -281,7 +295,7 @@ void update_weights(Layer * layer, Matrix * new_weights) {
 
 // Update the bias to the new bias
 void update_bias(Layer * layer, Matrix * bias) {
-    int rows = bias->rows, cols = bias->cols;
+    int rows = bias->rows;
     for (int i = 0; i < rows; ++i)
         layer->nodes[i]->bias = bias->array[i][0];
 }
@@ -295,11 +309,9 @@ void back_propagate(NN * nn, Matrix * output_error) {
     Layer * current_layer = last_layer;
 
     Matrix * weights;
-    Matrix * weights_copy;
     Matrix * weights_T;
     Matrix * input_error;
     Matrix * bias;
-    Matrix * input_copy;
     Matrix * input_T;
     Matrix * weights_error;
     Matrix * relu_output_error;
@@ -335,9 +347,12 @@ void back_propagate(NN * nn, Matrix * output_error) {
         current_layer = current_layer->prev_layer;
 
         // Free that memory!
+        free_matrix(weights_T);
+        free_matrix(input_T);
         free_matrix(input_error);
         free_matrix(bias);
         free_matrix(weights_error);
+        free(weights->array);
         free(weights);
     }
     free_inputs_outputs(nn->input_layer);
@@ -400,7 +415,6 @@ Data * alloc_data() {
 
 // Random input based on the architecture of the Neural Network
 Matrix * rand_input(NN * nn) {
-    double num;
     Matrix * input = alloc_matrix(1, nn->input_layer->node_count);
     int rows = input->rows, cols = input->cols;
     for (int i = 0; i < rows; i++)
@@ -787,6 +801,7 @@ Node * init_node() {
 void free_matrix(Matrix * matrix) {
     for (int i = 0; i < matrix->rows; i++)
         free(matrix->array[i]);
+
     free(matrix->array);
     free(matrix);
 }
@@ -891,6 +906,8 @@ void display_weights(Layer * layer) {
 // Displays the matrix given the dimensions
 void display_matrix(Matrix * matrix) {
    double num = 0.0;
+   if (matrix == NULL)
+        return;
    print_shape(matrix);
    for (int i = 0; i < matrix->rows; ++i) {
       for (int j = 0; j < matrix->cols; ++j) {
