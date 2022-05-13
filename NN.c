@@ -126,17 +126,19 @@ int main (void)
 {
     srand(time(NULL));
 
-    Dataset * auto_set = generate_not_dataset(100, 15);
+    Dataset * auto_set = generate_not_dataset(100, 6);
 
     NN * nn = init_NN(0.001);
-    add_layer(nn, 15);
+    add_layer(nn, 6);
     add_layer(nn, 40);
     add_layer(nn, 40);
-    add_layer(nn, 15);
+    add_layer(nn, 40);
+    add_layer(nn, 40);
+    add_layer(nn, 6);
 
-    fit (nn, auto_set, 10000);
+    fit (nn, auto_set, 100);
 
-    Matrix * not_point = generate_not_datapoint_x(15);
+    Matrix * not_point = generate_not_datapoint_x(6);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
@@ -444,7 +446,7 @@ void plus_biases(Matrix * matrix, Layer * layer) {
 
 // Error defined as: (y_pred - y_true) ^ 2
 double mean_squared_error(Matrix * y_pred, Matrix * y_true) {
-    double mse;
+    double mse = 0;
     int rows = y_pred->rows, cols = y_pred->cols;
     for (int i = 0; i < rows; i++)
         for (int j = 0; j < cols; j++)
