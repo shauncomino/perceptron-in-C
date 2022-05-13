@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
 
 ///                    ///
 /// Struct definitions ///
@@ -124,21 +123,17 @@ void free_not_dataset(Dataset * dataset);
 
 int main (void)
 {
-    srand(time(NULL));
 
-    Dataset * auto_set = generate_not_dataset(100, 6);
+    Dataset * auto_set = generate_not_dataset(100, 4);
 
     NN * nn = init_NN(0.001);
-    add_layer(nn, 6);
+    add_layer(nn, 4);
     add_layer(nn, 40);
-    add_layer(nn, 40);
-    add_layer(nn, 40);
-    add_layer(nn, 40);
-    add_layer(nn, 6);
+    add_layer(nn, 4);
 
     fit (nn, auto_set, 100);
 
-    Matrix * not_point = generate_not_datapoint_x(6);
+    Matrix * not_point = generate_not_datapoint_x(4);
     Matrix * output = predict(not_point, nn);
     printf("\n /|\\ Predictions /|\\\n");
     printf(" \\|/             \\|/\n");
